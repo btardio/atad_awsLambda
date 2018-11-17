@@ -156,10 +156,12 @@ Open an interactive console:
 {'statusCode': 200, 'body': '{"dirty": false, "error": null, "full-revisionid": "8858a0d1bdd149a0897789e8503ac586be14676d", "version": "3.0.2", "greeting": "Hello from Lambda!"}'}
 
 
-From here we can zip our package and send to AWS.
+From here we can zip our package and send to AWS. Before zipping we clean the directory of pyc files and remove the __pycache__ directory.
 
 cd project_emailGraph
 
+python3 -c "import pathlib; [p.unlink() for p in pathlib.Path('.').rglob('*.py[co]')]"
+python3 -c "import pathlib; [p.rmdir() for p in pathlib.Path('.').rglob('__pycache__')]"
 zip -r projectEmailGraph.zip .
 
 Upload the zip file and choose save. 
@@ -249,23 +251,60 @@ The RESULT log entry of above command should produce an identical line as the cu
 
 ## Creating a graph
 
-### We will modify our lambda_function to create the most basic graph. 
+### We will modify our lambda_function to create the most basic graph.
 
 ```python
 
+import json
+import matplotlib as mp
+import matplotlib._version
+import pandas as pd
+import smtplib # required to send email
+from os import environ
+from datetime import date, datetime
+from io import BytesIO # required for converting matplotlib figure to bytes
+from email.mime.image import MIMEImage # required for image attachment
+from email.mime.multipart import MIMEMultipart # required for image attachment
+from email.mime.text import MIMEText # required for message body
+
+def lambda_handler(event, context):
+ 
+    # used to calculate the number of incidents per day
+    day_accumulator = {}
+
+    # because we are using AWS Lambda behind their new? AWS proxy, the
+    # event object is different than what is documented. It contains the 
+    # request data within event['body', for this reason we need to make sure
+    # we are using event consistently in deployment and development
+    eventobj = None
+    if 'AWSDEPLOY' in environ and environ['AWSDEPLOY'] == 'TRUE':
+        try: 
+            eventobj = json.loads(event['body'])
+        except Exception as e:
+            # don't throw an error because AWS Lambda uses the non
+            # proxy technique for their tests
+            eventobj = event
+    else:
+        eventobj = event
+
+
     # put all of the entries into a dict
-    # it would be nice to include some error checking and then return
-    # a non-200 status code but for brevity we will assume this succeeds
-    for item in event['egyptsecurity']:
+    try: 
+        if len(eventobj['egyptsecurity']) == 0:
+            return failure('Request made with event list size of 0')
+
+        for item in eventobj['egyptsecurity']:
         
-        eventdate = date(int(item['year']), 
-                         int(item['month']), 
-                         int(item['day']))
+            eventdate = date(int(item['year']), 
+                             int(item['month']), 
+                             int(item['day']))
         
-        if eventdate in day_accumulator:
-            day_accumulator[eventdate] += 1
-        else:
-            day_accumulator[eventdate] = 1
+            if eventdate in day_accumulator:
+                day_accumulator[eventdate] += 1
+            else:
+                day_accumulator[eventdate] = 1
+    except Exception as e:
+        return failure(str(e))
 
     # make a list out of the keys (dates) for creating indices for the dataframe
     pddates = day_accumulator.keys()
@@ -302,11 +341,13 @@ The RESULT log entry of above command should produce an identical line as the cu
 
     # create a figure for the line graph 
     fig = plot.get_figure()
+
 ```
 
 ### We will convert the figure into byte format for writing as an image attachment.
 
 ```python
+
     # create a bytesIO object because we don't have persistent storage on lambda
     figdata = BytesIO()
 
@@ -317,6 +358,7 @@ The RESULT log entry of above command should produce an identical line as the cu
     # after writing the byte stream the seek position will be at the end
     # of the file, seek to position 0 for re-reading
     figdata.seek(0)
+
 ```
 
 ### We will create the mail message and send it
@@ -329,10 +371,17 @@ The RESULT log entry of above command should produce an identical line as the cu
     msg = MIMEMultipart('alternative')
 
     msg['Subject'] = 'New report for ' + '%s' % datetime.now()
-    msg['From'] = 'btardio.dataviz@gmail.com'
-    msg['To'] = 'btardio@gmail.com'
     
+    if 'FROM' not in environ:
+        return failure('Misconfigured environment variable FROM')
 
+    msg['From'] = environ['FROM']
+
+    if 'TO' not in environ:
+        return failure('Misconfigured environment variable TO')
+
+    msg['To'] = environ['TO']
+    
     # Create the body of the message (a plain-text and an HTML version).
     text = "Hi!\nPlease find attached the graph of today's report."
     html = """\
@@ -349,7 +398,6 @@ The RESULT log entry of above command should produce an identical line as the cu
         </body>
     </html>
     """
-
 
     # Record the MIME types of both parts - text/plain and text/html.
     part1 = MIMEText(text, 'plain')
@@ -373,15 +421,14 @@ The RESULT log entry of above command should produce an identical line as the cu
     # finally attach the img to the email message
     msg.attach(img)
 
-    # set up variables for mailing, it would be more convenient to use lambda's
-    # environment variables for these but using environment variables also
-    # need to be set up on the local environment and that is beyond the scope
-    # of this tutorial
-    username = 'btardio.dataviz@gmail.com'
-    password = '<INSERT-PASSWORD-HERE>'
+    # set up variables for mailing
+    username = environ['FROM']
+    
+    if 'GMAILPASS' not in environ:
+        return failure('Misconfigured environment variables')
+    
+    password = environ['GMAILPASS']
     server = smtplib.SMTP('smtp.gmail.com:587')
-
-
 
     # login and send the mail
     # it would be advisable to check the response, and log the response if it's 
@@ -392,29 +439,86 @@ The RESULT log entry of above command should produce an identical line as the cu
     # close the server connection
     server.quit()
 
+
 ```
 
-### We will change our return dict to assume success
+### We will return success
 
 ```python
 
-    # it would be nice to include other status codes here, but for brevity 
-    # we will assume this succeeds
     return {
         'statusCode': 200,
         'body': json.dumps('Success')
     }
+
 ```
+
+We will add a failure function to handle bad requests.
+
+```python
+
+# Boy is this job hard! We need some light natured jovial code to lighten our
+# path so we'll use status code 418 - 'I'm a teapot' to signify a client error
+# The RFC specifies this code should be returned by teapots requested to brew 
+# coffee.
+def failure(message):
+    return {
+        'statusCode': 418, # paying attention? change to 400 - Bad Request
+        'body': json.dumps(message)
+    }
+```
+
 
 ### We will modify our AWS setting for longer than 3 seconds.
 
 Because this function requires longer than 3 second to execute I change execution time on AWS to 1 minute. This is found under Basic Settings under the location you upload your zip file.
 
 
+## Setting up environment variables
+
+On Linux, to set an environment variable:
+
+export GMAILPASS=<YOUR-PASSWORD-HERE>
+export AWSDEPLOY=FALSE
+export FROM=<FROM-EMAIL-ADDRESS>
+export TO=<TO-EMAIL-ADDRESS>
+
+To check that it was set:
+
+env | grep GMAILPASS
+env | grep AWSDEPLOY
+etc...
+
+On Windows, to set an environment variable:
+
+TODO
+
+On Mac, to set an environment variable:
+
+TODO
+
+Next, we also need to set the environment variable for AWS, our deploy environment.
+
+Scroll down to the section titled Environment variables:
+
+key: GMAILPASS and for Value use the password
+key: AWSDEPLOY and for Value use TRUE
+key: FROM ...
+key: TO ...
+
+For added security you can encrypt your password but that is beyond the scope of this tutorial.
+ 
+
 ### Notes
 
 This code is in serious need of some error checking, exception handling. We are currently assuming success.
 
+
+### Checking
+
+You can check that this newly created function works by:
+
+curl -X POST -H "x-api-key: <YOUR-API-KEY-HERE>" -H "Content-Type: application/json" -d '{"egyptsecurity":[{"id":"201701010024","year":"2017","month":"1","day":"1","city":"Cairo","lat":"30.084629","lng":"31.334314","type":"Bombing/Explosion","target":"UnnamedCivilian/Unspecified"},{"id":"201701030038","year":"2017","month":"1","day":"3","city":"Ibsheway","lat":"29.360998","lng":"30.68244","type":"ArmedAssault","target":"PolicePatrol(includingvehiclesandconvoys)"},{"id":"201701030050","year":"2017","month":"1","day":"3","city":"Alexandria","lat":"31.200092","lng":"29.918739","type":"ArmedAssault","target":"Retail/Grocery/Bakery"},{"id":"201701060037","year":"2017","month":"1","day":"6","city":"Hasna","lat":"30.4653","lng":"33.785694","type":"ArmedAssault","target":"MilitaryCheckpoint"}]}' <YOUR-API-URL-ENDPOINT-HERE>
 
 # VBA Part
 

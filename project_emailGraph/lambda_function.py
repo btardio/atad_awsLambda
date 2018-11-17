@@ -3,35 +3,62 @@ import matplotlib as mp
 import matplotlib._version
 import pandas as pd
 import smtplib # required to send email
+from os import environ
 from datetime import date, datetime
 from io import BytesIO # required for converting matplotlib figure to bytes
 from email.mime.image import MIMEImage # required for image attachment
 from email.mime.multipart import MIMEMultipart # required for image attachment
 from email.mime.text import MIMEText # required for message body
 
+# Boy is this job hard! We need some light natured jovial code to lighten our
+# path so we'll use status code 418 - 'I'm a teapot' to signify a client error
+# The RFC specifies this code should be returned by teapots requested to brew 
+# coffee.
+def failure(message):
+    return {
+        'statusCode': 418, # paying attention? change to 400 - Bad Request
+        'body': json.dumps(message)
+    }
+
+
 def lambda_handler(event, context):
  
+    # used to calculate the number of incidents per day
     day_accumulator = {}
 
-    # Create a return dict
-    rdict = matplotlib._version.get_versions()
+    # because we are using AWS Lambda behind their new? AWS proxy, the
+    # event object is different than what is documented. It contains the 
+    # request data within event['body', for this reason we need to make sure
+    # we are using event consistently in deployment and development
+    eventobj = None
+    if 'AWSDEPLOY' in environ and environ['AWSDEPLOY'] == 'TRUE':
+        try: 
+            eventobj = json.loads(event['body'])
+        except Exception as e:
+            # don't throw an error because AWS Lambda uses the non
+            # proxy technique for their tests
+            eventobj = event
+    else:
+        eventobj = event
 
-    # Update the return dict with the hello string
-    rdict.update({'greeting':'Hello from Lambda!'})
 
     # put all of the entries into a dict
-    # it would be nice to include some error checking and then return
-    # a non-200 status code but for brevity we will assume this succeeds
-    for item in event['egyptsecurity']:
+    try: 
+        if len(eventobj['egyptsecurity']) == 0:
+            return failure('Request made with event list size of 0')
+
+        for item in eventobj['egyptsecurity']:
         
-        eventdate = date(int(item['year']), 
-                         int(item['month']), 
-                         int(item['day']))
+            eventdate = date(int(item['year']), 
+                             int(item['month']), 
+                             int(item['day']))
         
-        if eventdate in day_accumulator:
-            day_accumulator[eventdate] += 1
-        else:
-            day_accumulator[eventdate] = 1
+            if eventdate in day_accumulator:
+                day_accumulator[eventdate] += 1
+            else:
+                day_accumulator[eventdate] = 1
+    except Exception as e:
+        return failure(str(e))
 
     # make a list out of the keys (dates) for creating indices for the dataframe
     pddates = day_accumulator.keys()
@@ -86,8 +113,16 @@ def lambda_handler(event, context):
     msg = MIMEMultipart('alternative')
 
     msg['Subject'] = 'New report for ' + '%s' % datetime.now()
-    msg['From'] = 'btardio.dataviz@gmail.com'
-    msg['To'] = 'btardio@gmail.com'
+    
+    if 'FROM' not in environ:
+        return failure('Misconfigured environment variable FROM')
+
+    msg['From'] = environ['FROM']
+
+    if 'TO' not in environ:
+        return failure('Misconfigured environment variable TO')
+
+    msg['To'] = environ['TO']
     
 
     # Create the body of the message (a plain-text and an HTML version).
@@ -130,12 +165,13 @@ def lambda_handler(event, context):
     # finally attach the img to the email message
     msg.attach(img)
 
-    # set up variables for mailing, it would be more convenient to use lambda's
-    # environment variables for these but using environment variables also
-    # need to be set up on the local environment and that is beyond the scope
-    # of this tutorial
-    username = 'btardio.dataviz@gmail.com'
-    password = '<INSERT_PASSWORD_HERE>'
+    # set up variables for mailing
+    username = environ['FROM']
+    
+    if 'GMAILPASS' not in environ:
+        return failure('Misconfigured environment variables')
+    
+    password = environ['GMAILPASS']
     server = smtplib.SMTP('smtp.gmail.com:587')
 
 
@@ -149,10 +185,6 @@ def lambda_handler(event, context):
     # close the server connection
     server.quit()
 
-    
-
-    # it would be nice to include other status codes here, but for brevity 
-    # we will assume this succeeds
     return {
         'statusCode': 200,
         'body': json.dumps('Success')
