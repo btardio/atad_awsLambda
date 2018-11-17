@@ -1,0 +1,53 @@
+{
+    "egyptsecurity":
+        [
+            {
+                "id": "201701010024",
+                "year": "2017",
+                "month": "1",
+                "day":"1",
+                "city": "Cairo",
+                "lat":"30.084629",
+                "lng":"31.334314",
+                "type":"Bombing/Explosion",
+                "target":"Unnamed Civilian/Unspecified"
+            },
+            {
+                "id": "201701030038",
+                "year": "2017",
+                "month": "1",
+                "day":"3",
+                "city": "Ibsheway",
+                "lat":"29.360998",
+                "lng":"30.68244",
+                "type":"Armed Assault",
+                "target":"Police Patrol (including vehicles and convoys)"
+            },
+            {
+                "id": "201701030050",
+                "year": "2017",
+                "month": "1",
+                "day":"3",
+                "city": "Alexandria",
+                "lat":"31.200092",
+                "lng":"29.918739",
+                "type":"Armed Assault",
+                "target":"Retail/Grocery/Bakery"
+            },
+
+	    {
+		"id": "201701060037",
+		"year": "2017",
+		"month": "1",
+		"day":"6",
+		"city": "Hasna",
+		"lat":"30.4653",
+		"lng":"33.785694",
+		"type":"Armed Assault",
+		"target":"Military Checkpoint"
+	    }
+
+        ]
+}
+
+
