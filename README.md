@@ -616,15 +616,19 @@ Sub MakeAPICall()
 End Sub
 ```
 
+
 Running this macro results in getting this chart in our inbox.
-
-
-
 
 ![alt text](https://github.com/btardio/atad_awsLambda/blob/master/report.png "Chart")
 
 
+# Mistakes / Improvements
 
+The biggest glaring mistake is the use of 'egyptsecurity'. A better naming convention would have been to use 'records' or 'entries.'
+
+There's a possibility that in my haste the Excel document contains values in cells that I missed wrangling in the VBA code. For example, besides having the values of 0 for the day column, some cells may have more days than are allowed in a certain month.
+
+In hindsight I would have liked to include a TO field in the AWS Lambda function that allows the recipient to be specified in the JSON. 
 
 
 
