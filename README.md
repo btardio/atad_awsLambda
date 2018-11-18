@@ -523,12 +523,105 @@ curl -X POST -H "x-api-key: <YOUR-API-KEY-HERE>" -H "Content-Type: application/j
 # VBA Part
 
 
+I created the macro with the following VBA code:
+
+```vbnet
+Sub MakeAPICall()
+    Rem Taken directly from the Microsoft VBA documentation, these next 3 lines
+    Rem find the last row and last column of the spreadsheet
+    Dim LastRow As Long, LastColumn As Long
+    LastRow = Cells.Find(What:="*", After:=Range("A1"), SearchOrder:=xlByRows, SearchDirection:=xlPrevious).Row
+    LastColumn = Cells.Find(What:="*", After:=Range("A1"), SearchOrder:=xlByColumns, SearchDirection:=xlPrevious).Column
+    
+    Rem Because this is overly simplified we really only need year month and day
+    Dim year As Variant
+    Dim month As Variant
+    Dim day As Variant
+    
+    Rem I looked for a nicer loads/dumps json equivalent but was unable to
+    Rem find one that could handle nested dictionaries and lists, so i resorted
+    Rem to using a simple string, here we are constructing a json string
+    Dim datastring As String
+    datastring = "{""egyptsecurity"":["
+    
+    Rem The integer c is incremented each iteration of the loop, allowing
+    Rem us to insert a comma after each dictionary in the list
+    Dim c As Integer
+    c = 0
+    
+    Rem iterate through the rows of the spreadsheet, starting at row 2
+    Rem the first row is a header row
+    For Each rw In Range("A2").Resize(LastRow, LastColumn).Rows
+        
+        Rem assign year,month and day
+        year = rw.Cells(2).Value
+        month = rw.Cells(3).Value
+        day = rw.Cells(4).Value
+        
+        Rem possibly unnecessay, check to make sure that year, month and day
+        Rem are not empty
+        If CStr(year) <> "" And CStr(month) <> "" And CStr(day) <> "" Then
+            
+            Rem I found two entries in the excel spreadsheet with 0 as they day
+            Rem so I took liberty in changing these to 1
+            If CStr(day) = "0" Then
+                day = "1"
+            End If
+                
+            Rem if we are not at the first dict entry then add a comma
+            If c <> 0 Then
+                datastring = datastring + ","
+            Else
+                Rem if we are at first iteration, increment our iteration count
+                c = c + 1
+            End If
+            
+            Rem construct another dict entry for our json string
+            datastring = datastring + "{""year"":" + Chr(34)
+            datastring = datastring + CStr(year) + Chr(34)
+            datastring = datastring + ",""month"":" + Chr(34)
+            datastring = datastring + CStr(month) + Chr(34)
+            datastring = datastring + ",""day"":" + Chr(34)
+            datastring = datastring + CStr(day) + Chr(34) + "}"
+        
+        End If
+        
+    Next rw
+    
+    Rem after iterating the spreadsheet finish off our json string
+    datastring = datastring + "]}"
+    
+    Rem create an HTTP object for making the request
+    Set objHTTP = CreateObject("MSXML2.ServerXMLHTTP")
+    
+    Rem set the url
+    Url = "YOUR-ENDPOINT-URL-HERE"
+    
+    Rem initialize the object, setting the request type and setting it to be
+    Rem synchronous, we'll have to wait for aws lambda to return a response
+    objHTTP.Open "POST", Url, False
+    
+    Rem set the api-key header
+    objHTTP.setRequestHeader "x-api-key", "YOUR-API-KEY-HERE"
+    
+    Rem set the content-type header
+    objHTTP.setRequestHeader "Content-Type", "application/json"
+    
+    Rem finally make the request, send the datastring that we constructed
+    objHTTP.send datastring
+    
+    Rem create a simple msgbox with the contents of the response
+    MsgBox objHTTP.responseText
+    
+End Sub
+```
+
+Running this macro results in getting this chart in our inbox.
 
 
 
 
-
-
+![alt text](https://github.com/btardio/atad_awsLambda/blob/master/report.png "Chart")
 
 
 
