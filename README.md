@@ -1,28 +1,24 @@
-instructions
-
-vba supplemental
-
-excel sheet that sends pretty charts to your inbox using automated process
-
-
 # Process Overview
 
-excel document makes POST request sending json string to lambda
+This tutorial creates an API endpoint and AWS Lambda function. The tutorial uses an Excel VBA Macro to call the endpoint. The Lambda function creates a graph of the supplied JSON data and emails the graph to a recipient.
 
-lambda receives json request and:
+AWS Lambda receives JSON request and:
 
-	scrubs data
-	generates chart/graph with mathplotlib
-	connects to gmail smtp sending the file as an attachment
+	1. Generates chart/graph with mathplotlib
+	2. Connects to gmail smtp, sending the file as an attachment
 
+Excel VBA Macro
+	
+	1. Iterates through rows of a spreadsheet and minimally scrubs data
+	2. Constructs a JSON string and calls the API endpoint
 
 # Introduction / Pre-requisites
 
-For starters, you may have heard of a lambda function before. AWS names their service Lambda, which has little correlation to a lambda function.
+For starters, you may have heard of a lambda function before. AWS names their service Lambda, which has little correlation to a lambda function. For lambda functions in Python see: https://en.wikipedia.org/wiki/Anonymous_function
 
 For this tutorial you will need an AWS account. Luckily AWS offers a free tier which allows you to make a certain number of requests for free, but you will need your credit card to sign up.
 
-Another pre-requisite for this tutorial is virtualenv (https://virtualenv.pypa.io/en/latest/). There are many uses for virtualenv, reading the introductory 4 paragraphs of the documentation will provide insight into these uses. For our purposes we will be using virtualenv primarily as a packaging system, similar to how docker containerization works, so that Lambda can use the matplotlib package.
+Another pre-requisite for this tutorial is virtualenv (https://virtualenv.pypa.io/en/latest/). There are many uses for virtualenv, reading the introductory 4 paragraphs of the documentation will provide insight into these uses.
 
 Lastly you will need a separate gmail account that you shouldn't rely on as being overly secure. For brevity this tutorial lacks heightened security measures and assumes that the information you are working with is not sensitive to your organization.
 
@@ -30,50 +26,49 @@ You have already seen the design/process that we will be pursuing in the overvie
 
 # Warnings
 
-This tutorial does not address security between access points.
+This tutorial does not address security between access points. This tutorial does not adequately address security in general.
 
-# Creating a Lambda function
+# Creating a Lambda function / Using Function Designer
 
-In your AWS Services Dashboard go to Compute -> Lambda
+* In your AWS Services Dashboard go to Compute -> Lambda
 
-Select Create a Function
+* Select Create a Function
 
-Choose Author from scratch
+* Choose Author from scratch
 
-Name your function emailGraph
+* Name your function emailGraph
 
-Choose Python3.6 for your runtime.
+* Choose Python3.6 for your runtime.
 
-Select Create a new role from one or more templates.
+* Select Create a new role from one or more templates.
 
-Name your role roleEmailGraph
+* Name your role roleEmailGraph
 
-And choose simple microservice permissions for your policy template
+* Choose simple microservice permissions for your policy template
 
-Choose Create Function
+* Choose Create Function
 
-## emailGraph Function Designer
+* Add a trigger to your function. A trigger allows the function to be called using HTTP. 
 
-Add a trigger to your function. A trigger allows the function to be called using HTTP. 
+* Choose to add an API Gateway Trigger
+
+* Choose Create a new API
+
+* !! Choose Open with API key
+
+* Click Add
+
+* Now click Save in the top right.
 
 ### IMPORTANT !!
 
 Make sure your trigger uses an API Key and that you share this API Key with no one, otherwise malicious users of your API could make repetitive nuisance calls, costing you a significant amount of money.
 
-Choose to add an API Gateway Trigger
-
-Choose Create a new API
-
-!! Choose Open with API key
-
-Click Add
-
-Now click Save in the top right.
-
 ## Optional security
 
 For added security you can instead read: https://docs.aws.amazon.com/apigateway/latest/developerguide/how-to-create-api.html and create an API Gateway with a resource policy definition file. Unfortunately editing the resource policy file having created the Lambda function as described above is not possible as it uses a proxy to prevent certain activity. IE: This tutorial is using a method that is quick for learning and personal purposes (so long as you don't give away your key) but not adequate for deployment purposes. The other process is beyond the scope of this document.
 
+# Seeing that our endpoint works
 
 At this point we should be able to see that our basic API endpoint works.
 
@@ -87,49 +82,52 @@ Method: ANY
 Resource path: /emailGraph
 Stage: default
 
+If you enter the following line into your Linux terminal you should see a Hello from Lambda response
+
+```
 curl -X POST -H "x-api-key: <API-KEY-HERE>" -H "Content-Type: application/json" <ENDPOINT HERE>
+```
 
 The curl command sends a request of type POST and using header key/values 'x-api-key: <API-KEY>' and 'Content-Type: application/json'
 
+# emailGraph Function code
 
+Because we are using matplotlib we can't use the inline editor and instead need to create a .zip file to upload.
 
-## emailGraph Function code
-
-Because we are using matplotlib we can't use the inline editor and instead need to create a .zip file to upload as our lambda file.
-
-Let's create a virtualenv for ourselves. This virtualenv will mimick the environment on AWS, it will be completely empty. More can be read about virtualenvs # Here TODO
+Let's create a virtualenv for ourselves. This virtualenv will mimick the environment on AWS, it will be completely empty.
 
 From Linux console:
 
+```
 > py3-virtualenv venv_emailGraph
 
 > source venv_emailGraph/bin/activate
+```
 
 Our virtualenv will mimick the virtualenv of AWS and we will use a small helper package to see our script run locally before we deploy it to AWS, so we install python-lambda-local
 
+```
 > pip install python-lambda-local
+```
 
-Let's install the matplotlib package next. Instead of installing to the venv we will install to a root directory. This can get a little messy, which means we should keep our lambda functions to a minimum.
+Let's install the matplotlib package next. Instead of installing to the venv we will install to a project directory. This can get a little messy.
 
-Create a project directory which will be the zipped directory sent to AWS.
+Create a project directory which will be the zipped directory sent to AWS. Install matplotlib and pandas.
 
+```
 mkdir project_emailGraph
-
-And then install matplotlib
 
 pip install matplotlib -t /path/to/project_emailGraph
 
-And pandas
-
 pip install pandas -t /path/to/project_emailGraph
-
+```
 
 And let's check if everything is working by creating an lambda_function.py file in our project_emailGraph directory containing:
 
+```python
 import json
 import matplotlib as mp
 import matplotlib._version
-
 
 def lambda_handler(event, context):
     
@@ -147,32 +145,39 @@ def lambda_handler(event, context):
 # used by python-lambda-local, calls and returns lambda_handler
 def handler(event,context):
     return lambda_handler(event, context)
-
+```
 
 Open an interactive console:
 
+```
 >>> import lambda_function # import the py file
 >>> lambda_function.lambda_handler(None,None)
 {'statusCode': 200, 'body': '{"dirty": false, "error": null, "full-revisionid": "8858a0d1bdd149a0897789e8503ac586be14676d", "version": "3.0.2", "greeting": "Hello from Lambda!"}'}
-
+```
 
 From here we can zip our package and send to AWS. Before zipping we clean the directory of pyc files and remove the __pycache__ directory.
 
 cd project_emailGraph
 
+```
 python3 -c "import pathlib; [p.unlink() for p in pathlib.Path('.').rglob('*.py[co]')]"
 python3 -c "import pathlib; [p.rmdir() for p in pathlib.Path('.').rglob('__pycache__')]"
 zip -r projectEmailGraph.zip .
+```
 
 Upload the zip file and choose save. 
 
 Executing the same curl command:
 
+```
 curl -X POST -H "x-api-key: <API-KEY-HERE>" -H "Content-Type: application/json" <ENDPOINT HERE>
+```
 
 Should result in:
 
+```
 {"dirty": false, "error": null, "full-revisionid": "8858a0d1bdd149a0897789e8503ac586be14676d", "version": "3.0.2", "greeting": "Hello from Lambda!"}
+```
 
 This means that we have succesfully added matplotlib to lambda.
 
@@ -181,10 +186,11 @@ If you are having a problem getting to this step I would advise creating a Test 
 Incase this changes with future versions of Lambda the information is available https://docs.aws.amazon.com/lambda/latest/dg/lambda-python-how-to-create-deployment-package.html
 
 
-## Loading test data
+# Loading test data
 
 Let's create a test dataset, similar to what we would expect to receive from our Excel document. Create a new test in AWS with the following. ALSO create an event00.json file containing the same in your project directory.
 
+```
 {
     "egyptsecurity":
         [
@@ -236,7 +242,7 @@ Let's create a test dataset, similar to what we would expect to receive from our
 
         ]
 }
-
+```
 
 
 This dataset comes from Kaggle's Global Terrorism Database: https://www.kaggle.com/START-UMD/gtd/version/3
@@ -246,6 +252,8 @@ Now we can use our python-lambda-local from the command line to see the result o
 > python-lambda-local lambda_function.py event00.json
 
 The RESULT log entry of above command should produce an identical line as the curl result did.
+
+We can see that we have 3 ways of running our function. The first way is with an interactive Python console, sending it None and None as the context and event function arguments. The second way is having python-lambda-local create event and context objects from the event00.json file. Both of these two methods we will consider our development environment. The final way of running our function is after it has been deployed on AWS using curl. This last method is our deploy environment. 
 
 # Adding functionality to lambda_function.py
 
@@ -474,20 +482,25 @@ def failure(message):
 Because this function requires longer than 3 second to execute I change execution time on AWS to 1 minute. This is found under Basic Settings under the location you upload your zip file.
 
 
-## Setting up environment variables
+# Setting up environment variables
 
 On Linux, to set an environment variable:
 
+```
 export GMAILPASS=<YOUR-PASSWORD-HERE>
 export AWSDEPLOY=FALSE
 export FROM=<FROM-EMAIL-ADDRESS>
 export TO=<TO-EMAIL-ADDRESS>
+```
 
 To check that it was set:
 
+```
 env | grep GMAILPASS
 env | grep AWSDEPLOY
-etc...
+env | grep FROM
+env | grep TO
+```
 
 On Windows, to set an environment variable:
 
@@ -509,19 +522,14 @@ key: TO ...
 For added security you can encrypt your password but that is beyond the scope of this tutorial.
  
 
-### Notes
-
-This code is in serious need of some error checking, exception handling. We are currently assuming success.
-
-
-### Checking
+### Checking that our function works
 
 You can check that this newly created function works by:
 
 curl -X POST -H "x-api-key: <YOUR-API-KEY-HERE>" -H "Content-Type: application/json" -d '{"egyptsecurity":[{"id":"201701010024","year":"2017","month":"1","day":"1","city":"Cairo","lat":"30.084629","lng":"31.334314","type":"Bombing/Explosion","target":"UnnamedCivilian/Unspecified"},{"id":"201701030038","year":"2017","month":"1","day":"3","city":"Ibsheway","lat":"29.360998","lng":"30.68244","type":"ArmedAssault","target":"PolicePatrol(includingvehiclesandconvoys)"},{"id":"201701030050","year":"2017","month":"1","day":"3","city":"Alexandria","lat":"31.200092","lng":"29.918739","type":"ArmedAssault","target":"Retail/Grocery/Bakery"},{"id":"201701060037","year":"2017","month":"1","day":"6","city":"Hasna","lat":"30.4653","lng":"33.785694","type":"ArmedAssault","target":"MilitaryCheckpoint"}]}' <YOUR-API-URL-ENDPOINT-HERE>
 
-# VBA Part
 
+# VBA Part
 
 I created the macro with the following VBA code:
 
@@ -631,6 +639,16 @@ There's a possibility that in my haste the Excel document contains values in cel
 In hindsight I would have liked to include a TO field in the AWS Lambda function that allows the recipient to be specified in the JSON. 
 
 
+
+# Don't Forget
+
+Don't forget to change the alloted resources for the function, including execution time and memory allotment.
+
+# Conclusion
+
+AWS Lambda provides us with a platform for deploying an API endpoint that can become another part of our data analysis pipeline. It is convenient to us because the uptime of the service is near 99.9%. It is not convenient, yet, as being something multiple people can use, that may require us to improve authentication method and read further about the API Gateway because we are currently using a managed proxied version of AWS Lambda. I hope you can also see the benefits of AWS Lambda and will consider using it to fill in missing pieces in your data analysis pipeline or adding functionality to your data analysis tasks.
+
+Please feel free to email me with any questions.
 
 
 
